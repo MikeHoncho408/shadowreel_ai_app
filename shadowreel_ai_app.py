@@ -10,7 +10,7 @@ PEXELS_API_KEY = st.secrets["PEXELS_API_KEY"]
 TTS_API_KEY = st.secrets["TTS_API_KEY"]
 VOICE_ID = st.secrets["VOICE_ID"]
 
-st.set_page_config(page_title="ShadowReel AI", layout="centered")
+st.title("ShadowReel AI")
 st.title("\ud83c\udfa8 ShadowReel AI")
 st.markdown("Create powerful, cinematic storytelling reels in one click.")
 
