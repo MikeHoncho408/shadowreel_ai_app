@@ -1,88 +1,80 @@
-import streamlit as st
-import requests
+# ShadowForge AI - Initial Code Framework (MVP Version)
+# Purpose: Automatically generate cinematic video storytelling reels from a structured blueprint
+# Technology: Python CLI MVP using FFmpeg, TTS, and API pulls for visuals/music
+
 import os
-from moviepy.editor import concatenate_videoclips, VideoFileClip, AudioFileClip
+import subprocess
+import requests
+from moviepy.editor import (
+    concatenate_videoclips, VideoFileClip, AudioFileClip,
+    TextClip, CompositeVideoClip
+)
 
-# === API Keys ===
-PEXELS_API_KEY = st.secrets["PEXELS_API_KEY"]
-TTS_API_KEY = st.secrets["TTS_API_KEY"]
-VOICE_ID = st.secrets["VOICE_ID"]
+# === CONFIGURATION ===
+PEXELS_API_KEY = "YOUR_PEXELS_API_KEY"
+PEXELS_BASE_URL = "https://api.pexels.com/videos/search"
+VOICEOVER_FILE = "voiceover.mp3"
+OUTPUT_VIDEO = "shadow_reel.mp4"
+SCRIPT_TEXT_FILE = "voiceover.txt"
 
-# === App UI ===
-st.set_page_config(page_title="ShadowReel AI", layout="centered")
-st.title("ShadowReel AI")
-st.markdown("Create powerful, cinematic storytelling reels in one click.")
+# === STEP 1: Upload Custom Voiceover (Optional) ===
+def upload_custom_audio(file_path):
+    if os.path.exists(file_path):
+        os.rename(file_path, VOICEOVER_FILE)
+        print(f"[INFO] Custom audio uploaded: {VOICEOVER_FILE}")
+    else:
+        print("[ERROR] Provided file path does not exist.")
 
-script_input = st.text_area("\U0001F4DC Paste your script here:", height=250)
-theme = st.selectbox("\U0001F3A8 Choose a visual theme:", ["Dystopian", "Surveillance", "Whistleblower", "AI Horror"])
-submit = st.button("\u26A1\uFE0F Generate My Shadow Reel")
+# === STEP 2: Generate Voiceover from Script Text ===
+def generate_voiceover(script_text):
+    with open(SCRIPT_TEXT_FILE, "w") as f:
+        f.write(script_text)
+    print("[INFO] Placeholder: Insert TTS system to generate voiceover.mp3 from script_text")
 
-# === Voiceover Generation ===
-def generate_stanza_voiceovers(stanzas):
-    os.makedirs("voice", exist_ok=True)
-    for i, stanza in enumerate(stanzas):
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
-        headers = {
-            'xi-api-key': TTS_API_KEY,
-            'Content-Type': 'application/json'
-        }
-        data = {
-            'text': stanza,
-            'voice_settings': {
-                'stability': 0.5,
-                'similarity_boost': 0.75
-            }
-        }
-        response = requests.post(url, headers=headers, json=data)
-        with open(f"voice/line_{i}.mp3", 'wb') as f:
-            f.write(response.content)
-
-# === Fetch Clips ===
-def fetch_video_clips(keywords):
-    headers = {'Authorization': PEXELS_API_KEY}
+# === STEP 3: Search and Download Visual Clips ===
+def fetch_video_clips(keyword, limit=3):
+    headers = {"Authorization": PEXELS_API_KEY}
+    params = {"query": keyword, "per_page": limit}
+    response = requests.get(PEXELS_BASE_URL, headers=headers, params=params)
+    results = response.json()
+    urls = [video['video_files'][0]['link'] for video in results.get('videos', [])]
     os.makedirs("clips", exist_ok=True)
-    for i, keyword in enumerate(keywords):
-        r = requests.get(f"https://api.pexels.com/videos/search?query={keyword}&per_page=1", headers=headers)
-        if r.status_code == 200:
-            try:
-                link = r.json()['videos'][0]['video_files'][0]['link']
-                clip_data = requests.get(link)
-                with open(f"clips/{keyword}_{i}.mp4", 'wb') as out:
-                    out.write(clip_data.content)
-            except:
-                continue
+    for idx, url in enumerate(urls):
+        filename = f"clips/clip_{idx}.mp4"
+        with open(filename, "wb") as f:
+            f.write(requests.get(url).content)
+        print(f"[INFO] Downloaded: {filename}")
 
-# === Render Final Video ===
-def render_shadowreel(stanzas):
-    clips = []
-    for i, stanza in enumerate(stanzas):
-        try:
-            video_path = f"clips/{theme.lower().split()[0]}_{i}.mp4"
-            audio_path = f"voice/line_{i}.mp3"
-            clip = VideoFileClip(video_path).subclip(0, 5).set_audio(AudioFileClip(audio_path))
-            clips.append(clip)
-        except Exception as e:
-            continue
-    if clips:
-        final = concatenate_videoclips(clips)
-        final.write_videofile("shadowreel_final.mp4", fps=24)
+# === STEP 4: Stitch Video, Add Voice, and Display Captions ===
+def create_shadow_reel():
+    video_files = [f"clips/{file}" for file in os.listdir("clips") if file.endswith(".mp4")]
+    clips = [VideoFileClip(file).subclip(0, 5) for file in video_files]  # trim to 5 sec max
+    final_video = concatenate_videoclips(clips, method="compose")
 
-# === Run Sequence ===
-if submit and script_input:
-    st.info("\U0001F3A4 Generating voiceover clips...")
-    stanzas = [s.strip() for s in script_input.strip().split("\n") if s.strip()]
-    generate_stanza_voiceovers(stanzas)
+    if os.path.exists(VOICEOVER_FILE):
+        audio = AudioFileClip(VOICEOVER_FILE)
+        final_video = final_video.set_audio(audio)
 
-    st.info("\U0001F39E\uFE0F Fetching video segments...")
-    fetch_video_clips(theme.lower().split())
+    if os.path.exists(SCRIPT_TEXT_FILE):
+        with open(SCRIPT_TEXT_FILE, "r") as f:
+            script_lines = f.readlines()
 
-    st.info("\U0001F504 Rendering video...")
-    render_shadowreel(stanzas)
+        caption_clips = []
+        total_duration = final_video.duration / len(script_lines)
 
-    st.success("\u2705 Done! Your video is ready.")
-    with open("shadowreel_final.mp4", "rb") as f:
-        st.download_button("\u2B07\uFE0F Download ShadowReel", f, file_name="shadowreel_final.mp4")
+        for i, line in enumerate(script_lines):
+            txt_clip = TextClip(line.strip(), fontsize=40, color='white', font='Arial-Bold')
+            txt_clip = txt_clip.set_position('center').set_duration(total_duration).set_start(i * total_duration)
+            caption_clips.append(txt_clip)
 
-    st.success("\u2705 Done! Your video is ready.")
-    with open("shadowreel_final.mp4", "rb") as f:
-        st.download_button("\u2b07\ufe0f Download ShadowReel", f, file_name="shadowreel_final.mp4")
+        final_video = CompositeVideoClip([final_video, *caption_clips])
+
+    final_video.write_videofile(OUTPUT_VIDEO, fps=24)
+    print(f"[INFO] Final video saved as {OUTPUT_VIDEO}")
+
+# === EXECUTION ===
+if __name__ == "__main__":
+    sample_script = "Epstein was Phase One. Palantir is Phase Two. The algorithm never sleeps."
+    generate_voiceover(sample_script)
+    fetch_video_clips("surveillance")
+    create_shadow_reel()
