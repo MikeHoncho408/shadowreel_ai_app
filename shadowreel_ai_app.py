@@ -41,14 +41,30 @@ def fetch_video_clips(keyword, limit=3):
     os.makedirs("clips", exist_ok=True)
     for idx, url in enumerate(urls):
         filename = f"clips/clip_{idx}.mp4"
-        with open(filename, "wb") as f:
-            f.write(requests.get(url).content)
-        print(f"[INFO] Downloaded: {filename}")
+        clip_response = requests.get(url)
+        if clip_response.status_code == 200:
+            with open(filename, "wb") as f:
+                f.write(clip_response.content)
+            print(f"[INFO] Downloaded: {filename}")
+        else:
+            print(f"[WARNING] Skipped invalid clip from: {url}")
 
 # === STEP 4: Stitch Video, Add Voice, and Display Captions ===
 def create_shadow_reel():
     video_files = [f"clips/{file}" for file in os.listdir("clips") if file.endswith(".mp4")]
-    clips = [VideoFileClip(file).subclip(0, 5) for file in video_files]  # trim to 5 sec max
+
+    clips = []
+    for file in video_files:
+        try:
+            clip = VideoFileClip(file).subclip(0, 5)
+            clips.append(clip)
+        except Exception as e:
+            print(f"[ERROR] Skipping file {file}: {e}")
+
+    if not clips:
+        print("[ERROR] No valid video clips available to create a reel.")
+        return
+
     final_video = concatenate_videoclips(clips, method="compose")
 
     if os.path.exists(VOICEOVER_FILE):
@@ -60,7 +76,7 @@ def create_shadow_reel():
             script_lines = f.readlines()
 
         caption_clips = []
-        total_duration = final_video.duration / len(script_lines)
+        total_duration = final_video.duration / max(1, len(script_lines))
 
         for i, line in enumerate(script_lines):
             txt_clip = TextClip(line.strip(), fontsize=40, color='white', font='Arial-Bold')
@@ -78,3 +94,4 @@ if __name__ == "__main__":
     generate_voiceover(sample_script)
     fetch_video_clips("surveillance")
     create_shadow_reel()
+
